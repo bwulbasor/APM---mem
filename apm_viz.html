@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>APM — evidence graph explorer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { background: #14161a; color: #d7dae0; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
+  #bar { display: flex; gap: 10px; align-items: center; padding: 10px 14px; flex-wrap: wrap;
+         border-bottom: 1px solid #262a31; }
+  #bar h1 { font-size: 15px; font-weight: 600; color: #eef0f4; margin-right: 8px; }
+  select { background: #1d2026; color: #d7dae0; border: 1px solid #333842; border-radius: 6px;
+           padding: 6px 10px; font-size: 13px; }
+  #desc { color: #8b93a1; font-size: 12.5px; }
+  #main { display: flex; height: calc(100vh - 51px); }
+  #canvasWrap { flex: 1; position: relative; }
+  canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+  #side { width: 380px; border-left: 1px solid #262a31; padding: 14px; overflow-y: auto; }
+  #side h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #8b93a1;
+             margin: 14px 0 6px; }
+  #verdict { white-space: pre-wrap; font: 12px/1.6 Consolas, monospace; background: #1a1d22;
+             border: 1px solid #262a31; border-radius: 8px; padding: 10px; }
+  .k-CONFIRMED { border-left: 3px solid #47c78f !important; }
+  .k-ASSUMED   { border-left: 3px solid #f7b64f !important; }
+  .k-UNKNOWN   { border-left: 3px solid #e35d6a !important; }
+  #legend div { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12.5px; }
+  .sw { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  #tip { position: absolute; pointer-events: none; background: #1d2026; border: 1px solid #333842;
+         border-radius: 6px; padding: 6px 9px; font-size: 12px; display: none; max-width: 260px; }
+</style></head><body>
+<div id="bar">
+  <h1>APM evidence graph</h1>
+  <select id="sel"></select>
+  <span id="desc"></span>
+</div>
+<div id="main">
+  <div id="canvasWrap"><canvas id="cv"></canvas><div id="tip"></div></div>
+  <div id="side">
+    <h2>Verdict (gated output)</h2>
+    <div id="verdict"></div>
+    <h2>Legend</h2>
+    <div id="legend"></div>
+    <h2>Reading the graph</h2>
+    <div style="font-size:12.5px;color:#8b93a1">
+      Bold ring = query anchor. Green glow = the answer node.
+      Bright green edges = the evidence chain that licensed the verdict.
+      Dashed outline = assumed node; dotted = inferred (written back by the engine).
+      Edge thickness = association weight. Drag nodes; hover for details.
+    </div>
+  </div>
+</div>
+<script>
+const DATA = [{"name": "S1 Friday the 26th", "description": "Fallback ladder: people converge on IAESTE, agenda projects the GA.", "verdict": "CONFIRMED: IAESTE General Assembly (score 0.65)\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Anna --member_of(0.90)--> IAESTE  [activation 0.54]\n  [anchor-path] Marco --member_of(0.90)--> IAESTE  [activation 0.54]\n  [anchor-path] Priya --member_of(0.90)--> IAESTE  [activation 0.54]\n  [projection] IAESTE --plans--> IAESTE General Assembly | constraint match 0.72", "klass": "CONFIRMED", "nodes": [{"id": "p_anna", "label": "Anna", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_marco", "label": "Marco", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_priya", "label": "Priya", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "org_iaeste", "label": "IAESTE", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "org_bookclub", "label": "Book club", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "ev_ga", "label": "IAESTE General Assembly", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-06-26T18:00:00", "anchor": false, "answer": true}, {"id": "inf_event?[date=2026-06-26,participants=['p_anna', 'p_marco', 'p_priya']]anchors=p_anna|p_marco|p_priya", "label": "IAESTE General Assembly", "type": "event", "status": "inferred", "conf": 0.65, "ts": "2026-06-22T10:00:00", "anchor": false, "answer": false}], "edges": [{"src": "p_anna", "dst": "org_iaeste", "rel": "member_of", "w": 0.95, "chain": true}, {"src": "p_anna", "dst": "org_bookclub", "rel": "member_of", "w": 0.7, "chain": false}, {"src": "p_marco", "dst": "org_iaeste", "rel": "member_of", "w": 0.95, "chain": true}, {"src": "p_priya", "dst": "org_iaeste", "rel": "member_of", "w": 0.95, "chain": true}, {"src": "org_iaeste", "dst": "ev_ga", "rel": "plans", "w": 0.85, "chain": false}]}, {"name": "S1b agenda deleted", "description": "Same query, evidence removed: the gate must refuse (UNKNOWN).", "verdict": "UNKNOWN\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [note] established: anchors converge on IAESTE (score 0.90) \u2014 but no event candidate satisfies the constraints\n  [missing] a event node matching {'date': '2026-06-26', 'participants': ['p_anna', 'p_marco', 'p_priya']} (e.g. a calendar entry or an agenda item) would resolve this", "klass": "UNKNOWN", "nodes": [{"id": "p_anna", "label": "Anna", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_marco", "label": "Marco", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_priya", "label": "Priya", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "org_iaeste", "label": "IAESTE", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "org_bookclub", "label": "Book club", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}], "edges": [{"src": "p_anna", "dst": "org_iaeste", "rel": "member_of", "w": 0.9, "chain": false}, {"src": "p_anna", "dst": "org_bookclub", "rel": "member_of", "w": 0.7, "chain": false}, {"src": "p_marco", "dst": "org_iaeste", "rel": "member_of", "w": 0.9, "chain": false}, {"src": "p_priya", "dst": "org_iaeste", "rel": "member_of", "w": 0.9, "chain": false}]}, {"name": "S2 movie recall", "description": "Tip-of-the-tongue: three partial cues intersect on one movie.", "verdict": "CONFIRMED: The movie he's recalling (score 0.85)\n  [note] direct lookup: 3 strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] The actor --acted_in(0.85)--> The movie he's recalling  [activation 0.51]\n  [anchor-path] Synth soundtrack --has_music(0.80)--> The movie he's recalling  [activation 0.48]\n  [anchor-path] Tokyo --set_in(0.70)--> The movie he's recalling  [activation 0.42]", "klass": "CONFIRMED", "nodes": [{"id": "p_actor", "label": "The actor", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "t_music", "label": "Synth soundtrack", "type": "topic", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "pl_tokyo", "label": "Tokyo", "type": "place", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "m_target", "label": "The movie he's recalling", "type": "topic", "status": "observed", "conf": 0.9, "ts": "2019-01-01", "anchor": false, "answer": true}, {"id": "m_other1", "label": "Earlier movie A", "type": "topic", "status": "observed", "conf": 0.9, "ts": "2011-01-01", "anchor": false, "answer": false}, {"id": "m_other2", "label": "Recent movie B", "type": "topic", "status": "observed", "conf": 0.9, "ts": "2023-01-01", "anchor": false, "answer": false}, {"id": "inf_topic?[kind=movie]anchors=p_actor|pl_tokyo|t_music", "label": "The movie he's recalling", "type": "topic", "status": "inferred", "conf": 0.85, "ts": "2026-06-22T10:00:00", "anchor": false, "answer": false}], "edges": [{"src": "p_actor", "dst": "m_target", "rel": "acted_in", "w": 0.92, "chain": true}, {"src": "p_actor", "dst": "m_other1", "rel": "acted_in", "w": 0.85, "chain": false}, {"src": "p_actor", "dst": "m_other2", "rel": "acted_in", "w": 0.85, "chain": false}, {"src": "m_target", "dst": "t_music", "rel": "has_music", "w": 0.86, "chain": true}, {"src": "m_target", "dst": "pl_tokyo", "rel": "set_in", "w": 0.76, "chain": true}]}, {"name": "S3 incoming call", "description": "Pre-emptive inference: why is Person X calling? (capped at ASSUMED)", "verdict": "ASSUMED: Documents missing from Org Y (score 0.54) \u2014 assumed via weak evidence (best supported candidate)\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Person X --member_of(0.90)--> Organization Y  [activation 0.54]\n  [projection] Organization Y --about--> Documents missing from Org Y | constraint match 1.00", "klass": "ASSUMED", "nodes": [{"id": "p_x", "label": "Person X", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "org_y", "label": "Organization Y", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "ev_meet", "label": "Meeting X", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-06-22T22:00:00", "anchor": false, "answer": false}, {"id": "a_docs", "label": "Documents missing from Org Y", "type": "assertion", "status": "observed", "conf": 0.9, "ts": "2026-06-20T09:00:00", "anchor": false, "answer": true}, {"id": "ev_old", "label": "Org Y summer party", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-05-20T19:00:00", "anchor": false, "answer": false}, {"id": "a_photos", "label": "Party photos not yet shared", "type": "assertion", "status": "observed", "conf": 0.9, "ts": "2026-05-21T09:00:00", "anchor": false, "answer": false}, {"id": "org_z", "label": "Organization Z", "type": "org", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "a_invoice", "label": "Invoice unpaid at Org Z", "type": "assertion", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "inf_assertion?[]anchors=p_x", "label": "Documents missing from Org Y", "type": "assertion", "status": "assumed", "conf": 0.54, "ts": "2026-06-22T10:00:00", "anchor": false, "answer": false}], "edges": [{"src": "p_x", "dst": "org_y", "rel": "member_of", "w": 0.95, "chain": true}, {"src": "org_y", "dst": "ev_meet", "rel": "hosts", "w": 0.85, "chain": false}, {"src": "org_y", "dst": "ev_old", "rel": "hosts", "w": 0.85, "chain": false}, {"src": "a_docs", "dst": "ev_meet", "rel": "needed_for", "w": 0.9, "chain": false}, {"src": "a_docs", "dst": "org_y", "rel": "about", "w": 0.8, "chain": false}, {"src": "a_photos", "dst": "ev_old", "rel": "relates_to", "w": 0.9, "chain": false}, {"src": "a_invoice", "dst": "org_z", "rel": "about", "w": 0.9, "chain": false}]}, {"name": "S4 corrupted signal", "description": "Garbled destination: recency default, tagged ASSUMED, retractable.", "verdict": "ASSUMED: China (score 0.54) \u2014 assumed via recency\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Person X --traveled_to(0.90)--> China  [activation 0.54]\n  [default] 3 candidates tied within 0.05; recency picks China (2026-03-15)", "klass": "ASSUMED", "nodes": [{"id": "p_x", "label": "Person X", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "pl_greece", "label": "Greece", "type": "place", "status": "observed", "conf": 0.9, "ts": "2025-08-10", "anchor": false, "answer": false}, {"id": "pl_japan", "label": "Japan", "type": "place", "status": "observed", "conf": 0.9, "ts": "2024-11-02", "anchor": false, "answer": false}, {"id": "pl_china", "label": "China", "type": "place", "status": "observed", "conf": 0.9, "ts": "2026-03-15", "anchor": false, "answer": true}, {"id": "inf_s4_where_does_x_go", "label": "China", "type": "place", "status": "assumed", "conf": 0.54, "ts": "2026-06-22T10:00:00", "anchor": false, "answer": false}], "edges": [{"src": "p_x", "dst": "pl_greece", "rel": "traveled_to", "w": 0.9, "chain": false}, {"src": "p_x", "dst": "pl_japan", "rel": "traveled_to", "w": 0.9, "chain": false}, {"src": "p_x", "dst": "pl_china", "rel": "traveled_to", "w": 0.95, "chain": true}]}, {"name": "B1 interference", "description": "Bob moved: the newer fact suppresses the older via `contradicts`.", "verdict": "ASSUMED: Bob lives in Berlin (score 0.54) \u2014 assumed via weak evidence (best supported candidate)\n  [note] direct lookup: 2 strict match(es) \u2014 not uniquely resolvable (miss)\n  [contradiction] Bob lives in Paris contradicted by newer 'Bob lives in Berlin' (2026-05-10T00:00:00) -> score x0.19\n  [anchor-path] Bob --about(0.90)--> Bob lives in Berlin  [activation 0.54]", "klass": "ASSUMED", "nodes": [{"id": "p_bob", "label": "Bob", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "a_paris", "label": "Bob lives in Paris", "type": "assertion", "status": "observed", "conf": 0.9, "ts": "2023-04-01T00:00:00", "anchor": false, "answer": false}, {"id": "a_berlin", "label": "Bob lives in Berlin", "type": "assertion", "status": "observed", "conf": 0.9, "ts": "2026-05-10T00:00:00", "anchor": false, "answer": true}, {"id": "inf_assertion?[topic=residence]anchors=p_bob", "label": "Bob lives in Berlin", "type": "assertion", "status": "assumed", "conf": 0.54, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "a_paris", "dst": "p_bob", "rel": "about", "w": 0.9, "chain": false}, {"src": "a_berlin", "dst": "p_bob", "rel": "about", "w": 0.95, "chain": true}, {"src": "a_berlin", "dst": "a_paris", "rel": "contradicts", "w": 0.9, "chain": false}]}, {"name": "B2 episodic chain", "description": "What came after the gym? Sequence links + shared time context.", "verdict": "CONFIRMED: Brunch with Lea (score 0.76)\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Gym session --precedes(0.90)--> Brunch with Lea  [activation 0.54]\n  [anchor-path] Monday morning --part_of(0.80)--> Brunch with Lea  [activation 0.48]", "klass": "CONFIRMED", "nodes": [{"id": "t_monday", "label": "Monday morning", "type": "time", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "ev_gym", "label": "Gym session", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-06-29T07:00:00", "anchor": true, "answer": false}, {"id": "ev_brunch", "label": "Brunch with Lea", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-06-29T09:30:00", "anchor": false, "answer": true}, {"id": "ev_library", "label": "Library study block", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-06-29T11:30:00", "anchor": false, "answer": false}, {"id": "inf_event?[]anchors=ev_gym|t_monday", "label": "Brunch with Lea", "type": "event", "status": "inferred", "conf": 0.76, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "ev_gym", "dst": "t_monday", "rel": "part_of", "w": 0.8, "chain": false}, {"src": "ev_gym", "dst": "ev_brunch", "rel": "precedes", "w": 0.95, "chain": true}, {"src": "ev_brunch", "dst": "t_monday", "rel": "part_of", "w": 0.86, "chain": true}, {"src": "ev_brunch", "dst": "ev_library", "rel": "precedes", "w": 0.9, "chain": false}, {"src": "ev_library", "dst": "t_monday", "rel": "part_of", "w": 0.8, "chain": false}]}, {"name": "B3 priming: 'bank'", "description": "Context (river, fishing buddy) disambiguates an ambiguous word.", "verdict": "ASSUMED: River bank (score 0.57) \u2014 assumed via weak evidence (best supported candidate)\n  [note] direct lookup: 2 strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] The river --has_part(0.85)--> River bank  [activation 0.51]\n  [anchor-path] Sam (fishing buddy) --enjoys(0.80)--> Fishing --done_at(0.85)--> The river --has_part(0.85)--> River bank  [activation 0.12]", "klass": "ASSUMED", "nodes": [{"id": "t_river", "label": "The river", "type": "place", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_sam", "label": "Sam (fishing buddy)", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "t_fishing", "label": "Fishing", "type": "topic", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "t_bank_river", "label": "River bank", "type": "topic", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": true}, {"id": "t_bank_money", "label": "Bank branch", "type": "topic", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "t_finance", "label": "Finance errands", "type": "topic", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "inf_topic?[word=bank]anchors=p_sam|t_river", "label": "River bank", "type": "topic", "status": "assumed", "conf": 0.57, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "t_river", "dst": "t_bank_river", "rel": "has_part", "w": 0.95, "chain": true}, {"src": "p_sam", "dst": "t_fishing", "rel": "enjoys", "w": 0.86, "chain": true}, {"src": "t_fishing", "dst": "t_river", "rel": "done_at", "w": 0.92, "chain": true}, {"src": "t_finance", "dst": "t_bank_money", "rel": "involves", "w": 0.85, "chain": false}]}, {"name": "B4 forgetting", "description": "A 2015 memory, still recallable \u2014 decay would erase it honestly.", "verdict": "ASSUMED: Leipzig (score 0.29) \u2014 assumed via weak evidence (best supported candidate)\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Me --knows(0.90)--> Old friend from 2015 --lived_in(0.90)--> Leipzig  [activation 0.29]", "klass": "ASSUMED", "nodes": [{"id": "p_me", "label": "Me", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "p_old", "label": "Old friend from 2015", "type": "person", "status": "observed", "conf": 0.9, "ts": "", "anchor": false, "answer": false}, {"id": "pl_leipzig", "label": "Leipzig", "type": "place", "status": "observed", "conf": 0.9, "ts": "2015-06-01T00:00:00", "anchor": false, "answer": true}, {"id": "inf_place?[]anchors=p_me", "label": "Leipzig", "type": "place", "status": "assumed", "conf": 0.29, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "p_me", "dst": "p_old", "rel": "knows", "w": 0.95, "chain": true}, {"src": "p_old", "dst": "pl_leipzig", "rel": "lived_in", "w": 0.95, "chain": true}]}, {"name": "B5 source confusion", "description": "Two similar dinners: humans confabulate; APM tags ASSUMED.", "verdict": "ASSUMED: Dinner with Alex at Luigi's (score 0.49) \u2014 assumed via recency\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Luigi's restaurant --held_at(0.90)--> Dinner with Alex at Luigi's  [activation 0.54]\n  [default] 2 candidates tied within 0.05; recency picks Dinner with Alex at Luigi's (2026-04-22T20:00:00)", "klass": "ASSUMED", "nodes": [{"id": "pl_luigis", "label": "Luigi's restaurant", "type": "place", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "ev_dinner1", "label": "Dinner with Sam at Luigi's", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-01-15T20:00:00", "anchor": false, "answer": false}, {"id": "ev_dinner2", "label": "Dinner with Alex at Luigi's", "type": "event", "status": "observed", "conf": 0.9, "ts": "2026-04-22T20:00:00", "anchor": false, "answer": true}, {"id": "inf_event?[topic=startups,venue=luigis]anchors=pl_luigis", "label": "Dinner with Alex at Luigi's", "type": "event", "status": "assumed", "conf": 0.49, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "ev_dinner1", "dst": "pl_luigis", "rel": "held_at", "w": 0.9, "chain": false}, {"src": "ev_dinner2", "dst": "pl_luigis", "rel": "held_at", "w": 0.95, "chain": true}]}, {"name": "B6 flashbulb memory", "description": "Salient (high-weight) memories dominate recall of the trip.", "verdict": "ASSUMED: Nearly missed the flight (score 0.57) \u2014 assumed via weak evidence (best supported candidate)\n  [note] direct lookup: no strict match(es) \u2014 not uniquely resolvable (miss)\n  [anchor-path] Rome trip 2025 --includes(0.95)--> Nearly missed the flight  [activation 0.57]", "klass": "ASSUMED", "nodes": [{"id": "ev_trip", "label": "Rome trip 2025", "type": "event", "status": "observed", "conf": 0.9, "ts": "", "anchor": true, "answer": false}, {"id": "ev_flight", "label": "Nearly missed the flight", "type": "event", "status": "observed", "conf": 0.9, "ts": "2025-09-10T06:00:00", "anchor": false, "answer": true}, {"id": "ev_breakfast", "label": "Hotel breakfast", "type": "event", "status": "observed", "conf": 0.9, "ts": "2025-09-11T08:00:00", "anchor": false, "answer": false}, {"id": "inf_event?[]anchors=ev_trip", "label": "Nearly missed the flight", "type": "event", "status": "assumed", "conf": 0.57, "ts": "2026-07-01T12:00:00", "anchor": false, "answer": false}], "edges": [{"src": "ev_trip", "dst": "ev_flight", "rel": "includes", "w": 0.95, "chain": true}, {"src": "ev_trip", "dst": "ev_breakfast", "rel": "includes", "w": 0.55, "chain": false}]}];
+const COLORS = { person:"#4f8ef7", org:"#f7b64f", event:"#e35d6a", place:"#47c78f",
+                 time:"#9b7ff7", topic:"#47b8c7", assertion:"#d966b8" };
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+const tip = document.getElementById("tip");
+let nodes = [], edges = [], drag = null, hover = null;
+
+function load(i) {
+  const sc = DATA[i];
+  document.getElementById("desc").textContent = sc.description;
+  const vd = document.getElementById("verdict");
+  vd.textContent = sc.verdict; vd.className = "k-" + sc.klass;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  nodes = sc.nodes.map((n, j) => ({ ...n,
+    x: W/2 + Math.cos(j*2.399) * (90 + 24*j), y: H/2 + Math.sin(j*2.399) * (70 + 14*j),
+    vx: 0, vy: 0 }));
+  const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
+  edges = sc.edges.map(e => ({ ...e, a: byId[e.src], b: byId[e.dst] }));
+  const lg = document.getElementById("legend");
+  const types = [...new Set(sc.nodes.map(n => n.type))];
+  lg.innerHTML = types.map(t =>
+    `<div><span class="sw" style="background:${COLORS[t]}"></span>${t}</div>`).join("");
+}
+
+function resize() {
+  cv.width = cv.clientWidth * devicePixelRatio; cv.height = cv.clientHeight * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+}
+window.addEventListener("resize", resize);
+
+function step() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+    const a = nodes[i], b = nodes[j];
+    let dx = b.x-a.x, dy = b.y-a.y, d2 = dx*dx+dy*dy || 1, d = Math.sqrt(d2);
+    const f = Math.min(2200 / d2, 8);
+    dx /= d; dy /= d;
+    a.vx -= dx*f; a.vy -= dy*f; b.vx += dx*f; b.vy += dy*f;
+  }
+  for (const e of edges) {
+    let dx = e.b.x-e.a.x, dy = e.b.y-e.a.y, d = Math.sqrt(dx*dx+dy*dy) || 1;
+    const want = 130, f = (d-want) * 0.004 * (0.5 + e.w/2);
+    dx /= d; dy /= d;
+    e.a.vx += dx*f*d*0.02; e.a.vy += dy*f*d*0.02;
+    e.b.vx -= dx*f*d*0.02; e.b.vy -= dy*f*d*0.02;
+  }
+  for (const n of nodes) {
+    n.vx += (W/2-n.x)*0.0012; n.vy += (H/2-n.y)*0.0012;
+    if (drag !== n) { n.x += n.vx *= 0.86; n.y += n.vy *= 0.86; }
+    n.x = Math.max(30, Math.min(W-30, n.x)); n.y = Math.max(30, Math.min(H-40, n.y));
+  }
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  for (const e of edges) {
+    ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y);
+    if (e.chain) { ctx.strokeStyle = "#38e08c"; ctx.lineWidth = 1.2 + e.w*2.4; ctx.globalAlpha = .95; }
+    else { ctx.strokeStyle = "#3a4150"; ctx.lineWidth = .6 + e.w*1.8; ctx.globalAlpha = .8; }
+    if (e.rel === "contradicts") { ctx.setLineDash([5,4]); ctx.strokeStyle = "#e35d6a"; }
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    const mx = (e.a.x+e.b.x)/2, my = (e.a.y+e.b.y)/2;
+    ctx.fillStyle = e.chain ? "#7fe8b6" : "#6b7382"; ctx.font = "10px Consolas, monospace";
+    ctx.textAlign = "center"; ctx.fillText(e.rel + " " + e.w.toFixed(2), mx, my - 4);
+  }
+  for (const n of nodes) {
+    const r = n.answer ? 15 : n.anchor ? 12 : 9;
+    if (n.answer) {
+      ctx.beginPath(); ctx.arc(n.x, n.y, r+7, 0, 7);
+      ctx.fillStyle = "rgba(56,224,140,.18)"; ctx.fill();
+    }
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7);
+    ctx.fillStyle = COLORS[n.type] || "#888";
+    ctx.globalAlpha = n.status === "retracted" ? .3 : 1; ctx.fill();
+    if (n.status === "assumed") { ctx.setLineDash([3,3]); }
+    if (n.status === "inferred") { ctx.setLineDash([1.5,2.5]); }
+    ctx.lineWidth = n.anchor ? 3 : 1.2;
+    ctx.strokeStyle = n.anchor ? "#eef0f4" : "#14161a";
+    ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.fillStyle = n.status === "retracted" ? "#565d69" : "#c6cbd4";
+    ctx.font = (n.answer || n.anchor ? "600 " : "") + "11px system-ui";
+    ctx.textAlign = "center";
+    const label = n.label.length > 26 ? n.label.slice(0, 25) + "…" : n.label;
+    ctx.fillText(label, n.x, n.y + r + 13);
+    if (n.status === "retracted") ctx.fillText("(retracted)", n.x, n.y + r + 25);
+    if (n.status === "inferred") ctx.fillText("(inferred — written back)", n.x, n.y + r + 25);
+    if (n.status === "assumed") ctx.fillText("(assumed)", n.x, n.y + r + 25);
+  }
+}
+
+function loop() { step(); draw(); requestAnimationFrame(loop); }
+
+cv.addEventListener("mousedown", ev => {
+  const p = pos(ev); drag = pick(p.x, p.y); if (drag) cv.style.cursor = "grabbing";
+});
+window.addEventListener("mousemove", ev => {
+  const p = pos(ev);
+  if (drag) { drag.x = p.x; drag.y = p.y; drag.vx = drag.vy = 0; return; }
+  hover = pick(p.x, p.y);
+  if (hover) {
+    tip.style.display = "block";
+    tip.style.left = (p.x + 16) + "px"; tip.style.top = (p.y + 8) + "px";
+    tip.innerHTML = `<b>${hover.label}</b><br>type: ${hover.type} · status: ${hover.status}` +
+      `<br>confidence: ${hover.conf}` + (hover.ts ? `<br>ts: ${hover.ts}` : "");
+  } else tip.style.display = "none";
+});
+window.addEventListener("mouseup", () => { drag = null; cv.style.cursor = "grab"; });
+function pos(ev) { const r = cv.getBoundingClientRect(); return { x: ev.clientX-r.left, y: ev.clientY-r.top }; }
+function pick(x, y) { return nodes.find(n => (n.x-x)**2 + (n.y-y)**2 < 260); }
+
+const sel = document.getElementById("sel");
+DATA.forEach((s, i) => sel.add(new Option(s.name, i)));
+sel.addEventListener("change", () => load(+sel.value));
+resize(); load(0); loop();
+</script></body></html>

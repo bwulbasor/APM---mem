@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.llm_cache.sqlite
+
+# third-party dataset (Snap LongMemEval) — not redistributed; large
+bench/data/longmemeval_oracle.json
+# working scratch + viz artifacts
+bench/results.jsonl
+bench/results.jsonl.confirmbak
+*.png
+bench/graph_*.html
