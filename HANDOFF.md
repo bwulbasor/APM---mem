@@ -17,6 +17,37 @@ name TBD (candidate: Graph Link Models). Acronym APM collides with App Performan
 ## Current state — Phases 1-6 IN FLIGHT (40 tests green)
 
 **======================================================================**
+**2026-07-07 (2WikiMultiHopQA TEST) — 'WRONG EXAM' HYPOTHESIS REFUTED; WALL IS**
+**EXTRACTION ON BOTH BENCHMARKS. But the ENGINE'S MULTI-HOP CHAINING WORKS.**
+
+Built bench/run_2wiki.py (datasets lib installed; voidful/2WikiMultihopQA
+validation; 32 examples balanced across compositional/comparison/inference/
+bridge_comparison saved to bench/data/2wiki_slice.json). Ingest context
+paragraphs -> entity/relation graph -> parse multi-hop Q -> engine -> judge.
+Graph-only, gemma-4-31b extractor. RESULT (n=32):
+  **5/32 = 16%** | refused 17 (53%) | CONFIRMED 1 | invention 1 | infra 0
+  compositional 3/9 (33%) · comparison 1/8 · inference 1/6 · bridge_comparison 0/9
+FINDINGS:
+ - APM's MULTI-HOP CHAINING WORKS: compositional 'mother of the director of
+   film X' / 'award the director won' answered correctly via spreading
+   activation (film->director->mother/award). The convergence engine DOES do
+   relation-composition — the open architectural question is answered YES.
+ - BUT 2Wiki is HARDER than LongMemEval (16% vs 40%), not easier. Why: multi-
+   hop MULTIPLIES extraction dependencies (need the chain relation AND the
+   endpoint fact); comparison/bridge need DATES (extraction miss); bridge_
+   comparison = two chains + compare + dates = 0/9 (every dependency stacks).
+ - The 1 invention: bridge_comparison 'which director died first' CONFIRMED off
+   a bad/incomplete date — same garbage-in-date ordering class as gpt4_8c8961ae.
+   Faithfulness otherwise held (53% honest refusals).
+CONCLUSION: the wall is IDENTICAL on both benchmarks = EXTRACTION QUALITY.
+LongMemEval exposed it via missing dates/facts (single recall); 2Wiki exposes
+it harder via compounded multi-hop dependencies. The ENGINE is NOT the ceiling
+on either — validated: it chains, refuses honestly, ~0 inventions. This is the
+3rd independent confirmation (LongMemEval buckets + delta + 2Wiki) that the
+lever is extraction. Reinforces: the decisive remaining experiment is a
+stronger (paid) extractor; free options exhausted (gemma best, GLM-4.7 worse).
+
+**======================================================================**
 **2026-07-06 (TYPED-EVENT EXTRACTION) — PROMPT-ONLY VERSION FAILED TO TRANSFER;**
 **DIAGNOSIS MANDATES A DETERMINISTIC TEMPORAL-NLP LAYER. (APM_EVENTS gated off.)**
 
@@ -52,11 +83,49 @@ dates/ranges on events). This could un-bind the F bucket (which is 'extraction-
 bound' ONLY because the LLM's dates are bad). Secondary: cleaner kind
 classifier, coref for discriminative participants. Cons: deps (spaCy/Java),
 open-IE/coref brittle on dialogue (keep LLM for semantics), ranking-noise risk.
-NEXT: prototype the temporal-NLP date layer (dateparser, pure-python, light),
-fill event.date deterministically, re-run dev-42 graph-only; promote only if
-it lifts CONFIRMED/accuracy with 0 new inventions. Do NOT trust any LLM for
-dates. (Alt held in reserve: a stronger extractor — DeepSeek/frontier — but
-the diagnosis says DATES specifically, which deterministic NLP nails cheaper.)
+TEMPORAL-NLP LAYER — BUILT (apm/temporal_nlp.py, dateparser installed,
+APM_TEMPORAL gated off), MEASURED NULL, not promoted. Source-local date
+attachment (dateparser RELATIVE_BASE=session date; a date attaches to an
+event/assertion only when in the SAME SENTENCE, unambiguously; month/week ->
+ranges; never overrides explicit dates; stated_at[timestamp] kept separate
+from event_time[attrs]). Controlled dev-42 A/B/C (cache-warm): reach-only
+17/42, +temporal 17/42, +temporal+contract 17/42 — **+0 marginal**. WHY NULL:
+the layer dates ASSERTION nodes mentioned near a date, but _span/_order read
+specific ENDPOINT option nodes (activity-start, the event) — the dates are
+correct + present but don't land on the nodes the operators consume. Would
+need ENDPOINT-LEVEL dating (identify span/order endpoints, date THOSE; the
+'activity start' is usually implied, not a clean node) — deeper integration,
+uncertain ROI. NOTE: real reach-only dev-42 baseline is 17/42 (~40.5%), not
+15 (that was judge-noise in an older run).
+
+GLM-4.7 EXTRACTOR TEST (2026-07-07, APM_LLM_MODEL_EXTRACT=zai-glm-4.7, free
+Cerebras key) — NEGATIVE. Full dev-42 fresh extraction was UN-COMPLETABLE in
+this network (180s/call timeouts stack on flaky DNS + GLM reasoning = minutes/
+question; auto-resume loop couldn't progress past ~5/42). Completable delta
+test instead: GLM plain 3/5=60% (1 scenario FAILED extraction:
+finish_reason=length — reasoning model burned token budget on <think>, empty
+content — the exact 'avoid' failure the campaign flagged), proof-survival 1/4,
+CONFIRMED 1. vs gemma plain 5/6=83% proof 1/4, and gemma+events 6/6 proof 3/4.
+**GLM-4.7 is WORSE than gemma, not better: same proof-survival, lower accuracy,
+reasoning-overflow failures, 5-10x slower.** Ruled out. FREE-EXTRACTOR LEVER
+EXHAUSTED: gemma-4-31b is the best free extractor; a genuinely stronger one
+now requires PAID (DeepSeek deepseek-chat, ~$2 top-up, noted best all campaign;
+or frontier) = a SPEND DECISION for Abiram. temporal_nlp.py REMOVED (null).
+
+CONSOLIDATED CONCLUSION (4 consecutive nulls after Module 1: F, C, Module-3,
+typed-events, temporal-NLP): **graph + extraction-layer levers on the current
+Cerebras extractor are TAPPED at ~40% graph-only.** Each remaining lever needs
+the LLM to emit structure it won't (dates), a deeper integration, or fights a
+faithfulness guard. The engine is NOT the bottleneck. TO GET PAST ~40% the real
+options are: (a) a genuinely STRONGER EXTRACTOR (DeepSeek/frontier — held in
+reserve all campaign; would attack dropped facts + dates + typed events at the
+source), or (b) endpoint-level temporal integration (narrow, uncertain).
+Recommend: this is the point to (1) take the full trajectory to the expert, and
+(2) seriously weigh the frontier-extractor experiment — the diagnosis now says
+the ceiling is EXTRACTION QUALITY, which a better extractor directly addresses.
+Product remains ~70% (hybrid), unaffected. REPO PUSHED to
+github.com/bwulbasor/APM---mem @ 74e869b (before this temporal work; local is
+ahead — offer to push the session's engine/extraction changes).
 
 **======================================================================**
 **2026-07-06 (C AUDIT + MODULE 3 NULL) — SAFE PURE-ENGINE CEILING = ~40%.**

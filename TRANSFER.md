@@ -1,4 +1,66 @@
-# APM — Session Transfer (2026-07-06)
+# APM — Session Transfer (2026-07-07)
+
+> **2026-07-07 STATE — THE WALL IS EXTRACTION QUALITY (confirmed 3 ways). The
+> ENGINE is validated; it is NOT the ceiling. Read HANDOFF.md top entries for
+> full detail; this is the fresh-chat summary.
+>
+> HEADLINE NUMBERS (Cerebras gemma-4-31b free, APM_NO_CRITIC=1):
+>   PRODUCT (hybrid, APM_WIDE_SUPPORT=1): ~70% (70.4% pooled-unseen n=108,
+>     0.9% invention) — competitive w/ Zep(63.8)/Mem0(49), ~alone at ~0
+>     confident-wrong w/ per-answer provenance. SHIPPABLE.
+>   GRAPH-ONLY (research KPI, APM_NO_HYBRID=1 APM_NO_AGG=1): ~40% (verified
+>     33.3% baseline -> 40.0% after Module 1). Pure proof-chain (CONFIRMED
+>     tier) ~3-5% — flat all campaign.
+>   2WikiMultiHopQA graph-only: 16% (n=32) — multi-hop chaining WORKS
+>     (compositional 33%) but harder tasks multiply extraction deps.
+>
+> WHAT THIS SESSION ESTABLISHED (2026-07-06/07):
+>  - Tiered contract holds: CONFIRMED(proof)/ASSUMED(rule)/TEXT_SUPPORTED
+>    (verified quote)/refusal. Product ~81% verified-RAG, graph-proof ~3%.
+>  - MODULE 1 (bucket-B reachability, engine._stated_value_fallback, DEFAULT
+>    ON, ablate APM_NO_REACH): reads a stated value from an assertion the
+>    type/mode filter excluded; ASSUMED-only so invention-proof. graph-only
+>    33->40, product flat, 0 new inv. THE ONE ENGINE WIN.
+>  - EVERYTHING ELSE NULL, each diagnosed: F temporal (operators exist, dates
+>    not extracted), C ranked-below (guard-entangled — overriding re-opens
+>    closed invention classes), Module-3 attr-reachability (guard-demoted),
+>    typed-event extraction prompt (LLM emits structure but date=None),
+>    temporal-NLP dateparser layer (plumbing: dates land on wrong nodes),
+>    GLM-4.7 extractor (WORSE than gemma + reasoning-overflow + slow).
+>  - OOD FAITHFULNESS: law-firm smoke test caught 2 CONFIRMED inventions ->
+>    fixed with 3 general invariants (ordering modification-guard, supersede
+>    edge-timestamp fallback, recency-conflict guard). 141 tests green.
+>  - THE WALL = EXTRACTION QUALITY, confirmed 3 independent ways: LongMemEval
+>    failure buckets (~25% fact-missing + dates), the DELTA experiment
+>    (hand-built graphs 100% vs extracted proof-collapse 1/4), and 2Wiki
+>    (harder = worse, deps multiply). The ENGINE reasons, chains multi-hop,
+>    refuses honestly, holds ~0 inventions. It is NOT the bottleneck.
+>
+> THE DECISION ON THE TABLE (unchanged, now overdetermined): free-extractor
+> lever EXHAUSTED (gemma best free, GLM worse). To move past ~40% graph-only:
+>   (A) STRONGER PAID EXTRACTOR — DeepSeek deepseek-chat (~$2 top-up on the
+>       existing key; flagged best-extractor all campaign). THE decisive $2
+>       experiment: swap EXTRACT role, re-run LongMemEval + 2Wiki; if accuracy
+>       jumps, extraction was the wall & 60% is alive; if not, ceiling is real.
+>   (B) CONSOLIDATE + PUBLISH the faithful-memory story (engine validated, wall
+>       diagnosed, product ~70%, ~0 lies w/ provenance) — complete as-is.
+>   (C) endpoint-level temporal integration (narrow, uncertain) — low priority.
+> Recommendation: do (A) — $2 to convert "we think it's extraction" into proof.
+>
+> REPO: github.com/bwulbasor/APM---mem @ 74e869b (PRIVATE). Pushed BEFORE the
+> temporal/2Wiki work — local docs (HANDOFF/TRANSFER) + bench/run_2wiki.py +
+> bench/data/2wiki_slice.json are AHEAD of the remote; push to sync.
+> .env (6 Cerebras + gemini keys) gitignored, verified absent from repo.
+> longmemeval_oracle.json (15MB) gitignored (not redistributed).
+>
+> RUN CMDS: `python -m pytest tests/ -q` (141) ·
+>   graph-only: `APM_NO_CRITIC=1 APM_NO_HYBRID=1 APM_NO_AGG=1 python bench/rerun_ids.py bench/results_dev64_v113_cerebras.jsonl` (dev-42, cache-warm) ·
+>   product: `APM_NO_CRITIC=1 APM_WIDE_SUPPORT=1 python bench/rerun_ids.py <archive>` ·
+>   2Wiki: `APM_NO_CRITIC=1 python bench/run_2wiki.py 32` (fresh extract, resumable) ·
+>   delta: `python bench/run_convergence_delta.py` · convergence: `python bench/run_convergence.py` (hand-built, offline) ·
+>   failure table: `APM_NO_CRITIC=1 python bench/failure_table.py` ·
+>   swap extractor: `APM_LLM_MODEL_EXTRACT=<model> ...` (NETWORK FLAKY on fresh
+>   full-slice extraction — 180s/call timeouts stack; keep slices small/resumable).**
 
 > **2026-07-06 (LATER) STATE — 70% ON UNSEEN DATA + A DELIBERATE TWO-TRACK
 > SPLIT. (v1.15 "wide-support", 137 tests green.) Full detail: HANDOFF.md top
