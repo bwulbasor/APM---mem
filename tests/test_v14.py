@@ -104,6 +104,90 @@ def test_sum_totals_duration_assertions():
     assert v.answer.attrs["total"] == 3.5
 
 
+# ------------------------------------- frequency reachability fallback ----
+
+def test_frequency_reachability_reads_stated_value():
+    g = EvidenceGraph()
+    g.add_node(Node("p_u", NodeType.PERSON, "User"))
+    g.add_node(Node("as_dr", NodeType.ASSERTION,
+                    "I see Dr. Smith every week",
+                    timestamp="2026-05-20T10:00:00"))
+    g.add_edge(Edge("p_u", "as_dr", "about", 0.9))
+    q = Query(anchors=["p_u"],
+              placeholder=Placeholder(NodeType.ASSERTION, {}),
+              topic_text="How often do I see my therapist, Dr. Smith?")
+    v = Engine(g).answer(q, now=NOW)
+    assert v.klass == VerdictClass.ASSUMED
+    assert "every week" in v.answer.label.lower()
+
+
+def test_frequency_event_can_supply_answer_shape():
+    g = EvidenceGraph()
+    g.add_node(Node("p_u", NodeType.PERSON, "User"))
+    g.add_node(Node("p_dr", NodeType.PERSON, "Dr. Smith"))
+    g.add_node(Node("ev_weekly", NodeType.EVENT,
+                    "Weekly sessions with Dr. Smith",
+                    timestamp="2026-05-20T10:00:00"))
+    g.add_edge(Edge("p_u", "ev_weekly", "attends", 0.9))
+    g.add_edge(Edge("p_dr", "ev_weekly", "about", 0.9))
+    q = Query(anchors=["p_u", "p_dr"],
+              placeholder=Placeholder(NodeType.ASSERTION, {}),
+              topic_text="How often do I see my therapist, Dr. Smith?")
+    v = Engine(g).answer(q, now=NOW)
+    assert v.klass == VerdictClass.ASSUMED
+    assert "weekly" in v.answer.label.lower()
+
+
+def test_frequency_reachability_refuses_on_unresolved_entity():
+    g = EvidenceGraph()
+    g.add_node(Node("p_u", NodeType.PERSON, "User"))
+    g.add_node(Node("as_dr", NodeType.ASSERTION,
+                    "I see Dr. Smith every week",
+                    timestamp="2026-05-20T10:00:00"))
+    g.add_edge(Edge("p_u", "as_dr", "about", 0.9))
+    q = Query(anchors=["p_u"],
+              placeholder=Placeholder(NodeType.ASSERTION, {}),
+              topic_text="How often do I see Dr. Johnson?",
+              unresolved=["Dr. Johnson"])
+    v = Engine(g).answer(q, now=NOW)
+    assert v.klass == VerdictClass.UNKNOWN
+
+
+def test_frequency_event_requires_specific_subject_tokens():
+    g = EvidenceGraph()
+    g.add_node(Node("p_u", NodeType.PERSON, "User"))
+    g.add_node(Node("pl_park", NodeType.PLACE, "local park"))
+    g.add_node(Node("ev_tennis", NodeType.EVENT,
+                    "weekly tennis sessions",
+                    timestamp="2026-05-20T10:00:00"))
+    g.add_edge(Edge("p_u", "ev_tennis", "attends", 0.9))
+    g.add_edge(Edge("ev_tennis", "pl_park", "located_in", 0.9))
+    q = Query(anchors=["p_u", "pl_park"],
+              placeholder=Placeholder(NodeType.ASSERTION, {}),
+              topic_text="How often do I play table tennis at the local park?")
+    v = Engine(g).answer(q, now=NOW)
+    assert v.klass == VerdictClass.UNKNOWN
+
+
+def test_attribute_name_subject_mismatch_refuses():
+    g = EvidenceGraph()
+    g.add_node(Node("p_u", NodeType.PERSON, "User"))
+    g.add_node(Node("as_microchip", NodeType.ASSERTION,
+                    "Recommendation: Microchip Luna",
+                    timestamp="2026-05-20T10:00:00"))
+    g.add_node(Node("to_cat", NodeType.TOPIC, "cat"))
+    g.add_edge(Edge("p_u", "as_microchip", "related_to", 0.9))
+    g.add_edge(Edge("as_microchip", "to_cat", "about", 0.9))
+    q = Query(anchors=["p_u"],
+              placeholder=Placeholder(NodeType.ASSERTION,
+                                      {"attribute": "hamster name"}),
+              topic_text="What is the name of my hamster?")
+    v = Engine(g).answer(q, now=NOW)
+    assert v.klass == VerdictClass.UNKNOWN
+
+
+
+
 # ------------------------------------------- count anchor + oversize guard --
 
 def _kit_world(n_noise=0):

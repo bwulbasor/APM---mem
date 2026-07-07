@@ -136,6 +136,8 @@ class Engine:
         # [5] INTERSECT: candidates of the placeholder's type ---------------
         scope = self._scope(query)
         drop_advice = self._drop_advice(query)
+        freq_q = self._is_frequency_query(query.topic_text or "")
+        subj_toks = self._query_subject_tokens(query.topic_text or "")
         cands: list[Candidate] = []
         for node_id, paths in activated.items():
             node = self.graph.node(node_id)
@@ -148,10 +150,17 @@ class Engine:
                 continue
             if drop_advice and self._is_advice(node):
                 continue     # a recommendation is not the user's OWN fact
+            if freq_q and node.type == NodeType.ASSERTION:
+                if not self._looks_like_frequency_assertion(node):
+                    continue
+                if not self._supports_subject_tokens(node, subj_toks):
+                    continue
             m = match_constraints(node, ph.constraints, strict=False, required=ph.required)
             if m == 0.0:
                 continue
             cands.append(Candidate(node, noisy_or(paths) * m * type_f, paths, m))
+        if freq_q and ph.type == NodeType.ASSERTION:
+            cands.extend(self._frequency_event_candidates(activated, subj_toks))
 
         # [6a]+[6b] FALLBACK: parent climb + constraint projection ----------
         best = max(cands, key=lambda c: c.score, default=None)
@@ -162,6 +171,9 @@ class Engine:
                 if c.node.id not in by_id or c.score > by_id[c.node.id].score:
                     by_id[c.node.id] = c
             cands = list(by_id.values())
+        if freq_q and ph.type == NodeType.ASSERTION:
+            cands = [c for c in cands if self._looks_like_frequency_assertion(c.node)
+                     and self._supports_subject_tokens(c.node, subj_toks)]
 
         # [6d] CONTRADICTION: newer evidence attacks older (SPEC.md §6) ------
         contra_notes = self._apply_contradictions(cands)
@@ -184,6 +196,21 @@ class Engine:
         if not cands:
             return self._unknown(query, activated, chain, ph)
 
+        attr_subj = self._attribute_subject_tokens(query)
+        if attr_subj:
+            kept = [c for c in cands
+                    if self._supports_attribute_subject(c.node, attr_subj)]
+            if kept:
+                if len(kept) < len(cands):
+                    chain.add("note", "dropped candidates that do not support "
+                                      "the named subject of the requested attribute")
+                cands = kept
+            else:
+                chain.add("note", "no candidate supports the named subject of "
+                                  "the requested attribute")
+                return self._unknown(query, activated, chain, ph,
+                                     note="possible false premise")
+
         top = cands[0]
         tied = [c for c in cands if top.score - c.score < TIE_EPSILON]
 
@@ -192,6 +219,12 @@ class Engine:
         if query.unresolved and top.score < 0.5                 and not self._rel_corroborated(query, top):
             chain.add("note", f"question references entities with no memory: "
                               f"{', '.join(query.unresolved)}")
+            return self._unknown(query, activated, chain, ph,
+                                 note="possible false premise")
+        if query.unresolved and ph.type == NodeType.ASSERTION and \
+                not self._supports_unresolved_entity(query.unresolved, top.node):
+            chain.add("note", f"top assertion does not support the unresolved "
+                              f"entity reference(s): {', '.join(query.unresolved)}")
             return self._unknown(query, activated, chain, ph,
                                  note="possible false premise")
 
@@ -848,6 +881,11 @@ class Engine:
         r"\b(recommend(s|ed|ation)?|suggest(s|ed|ion)?|you should|"
         r"is considering|are considering|best guess|advisable|"
         r"you could try|option[s]?:)\b", re.I)
+    _FREQ = re.compile(r"\b(?:daily|weekly|monthly|yearly|annually|"
+                       r"every\s+\w+|once\s+(?:a|an)\s+\w+|"
+                       r"twice\s+(?:a|an)\s+\w+|"
+                       r"\d+\s+times\s+(?:a|per)\s+\w+|"
+                       r"frequency)\b", re.I)
     _WANTS_ADVICE = re.compile(
         r"\b(recommend|suggest|should i|advice|any tips|tip for|"
         r"what to (get|do|buy|look|watch|bake|try)|ideas?)\b", re.I)
@@ -863,6 +901,88 @@ class Engine:
             return False
         q = query.topic_text or ""
         return not bool(self._WANTS_ADVICE.search(q))
+
+    @staticmethod
+    def _is_frequency_query(text: str) -> bool:
+        q = text.lower()
+        return ("how often" in q or "how frequently" in q
+                or "weekly" in q or "monthly" in q or "daily" in q)
+
+    @staticmethod
+    def _query_subject_tokens(text: str) -> set[str]:
+        toks = {t for t in re.sub(r"[^a-z0-9 ]+", " ", text.lower()).split()
+                if len(t) > 3}
+        return toks - {"often", "frequently", "weekly", "monthly", "daily",
+                       "every", "currently", "about", "with",
+                       "have", "been", "does", "your", "play", "plays",
+                       "seeing", "visit", "visits", "meet", "meets",
+                       "attend", "attends", "session", "sessions",
+                       "appointment", "appointments", "friends", "friend",
+                       "local", "park", "therapist", "doctor"}
+
+    def _supports_subject_tokens(self, node: Node, tokens: set[str]) -> bool:
+        if not tokens:
+            return True
+        text = [node.label]
+        text.extend(str(v) for k, v in node.attrs.items() if k != "aliases")
+        for other_id, _e in self.graph.neighbors(node.id):
+            if other_id in self.graph.nodes:
+                text.append(self.graph.node(other_id).label)
+        hay = {w.rstrip("s") for w in re.sub(r"[^a-z0-9 ]+", " ",
+                                             " ".join(text).lower()).split()
+               if len(w) > 2}
+        return all(any(w.startswith(t[:5]) for w in hay) for t in tokens)
+
+    @staticmethod
+    def _attribute_subject_tokens(query: Query) -> set[str]:
+        attr = str(query.placeholder.constraints.get("attribute", "")).lower()
+        if not attr.endswith(" name"):
+            return set()
+        toks = [t for t in re.sub(r"[^a-z0-9 ]+", " ", attr).split()
+                if len(t) > 3 and t not in {"name"}]
+        return set(toks)
+
+    def _supports_attribute_subject(self, node: Node, tokens: set[str]) -> bool:
+        if not tokens:
+            return True
+        text = [node.label]
+        text.extend(str(v) for k, v in node.attrs.items() if k != "aliases")
+        for other_id, _e in self.graph.neighbors(node.id):
+            if other_id in self.graph.nodes:
+                text.append(self.graph.node(other_id).label)
+        hay = {w.rstrip("s") for w in re.sub(r"[^a-z0-9 ]+", " ",
+                                             " ".join(text).lower()).split()
+               if len(w) > 2}
+        return all(any(w.startswith(t[:5]) for w in hay) for t in tokens)
+
+    def _looks_like_frequency_assertion(self, node: Node) -> bool:
+        blob = " ".join([node.label] + [str(v) for k, v in node.attrs.items()
+                                        if k != "aliases"]).lower()
+        return bool(self._FREQ.search(blob))
+
+    def _frequency_event_candidates(self, activated: dict, subj_toks: set[str]) -> list[Candidate]:
+        out = []
+        for node_id, paths in activated.items():
+            node = self.graph.node(node_id)
+            if node.type != NodeType.EVENT:
+                continue
+            if not self._supports_subject_tokens(node, subj_toks):
+                continue
+            m = self._FREQ.search(node.label.lower())
+            if not m:
+                continue
+            freq = m.group(0)
+            synth = Node(id=f"freq_{node.id}", type=NodeType.ASSERTION,
+                         label=freq,
+                         attrs={"value": freq, "metric": "frequency",
+                                "context": node.label},
+                         timestamp=node.timestamp,
+                         source=f"apm:freq-event:{node.id}",
+                         status=Status.OBSERVED,
+                         confidence=node.confidence)
+            out.append(Candidate(synth, noisy_or(paths), paths, 1.0,
+                                 projection_note=f"{node.label} expresses frequency '{freq}'"))
+        return out
 
     def _is_advice(self, node: Node) -> bool:
         return bool(self._ADVICE.search(node.label))
@@ -965,6 +1085,22 @@ class Engine:
                    for tok in r.lower().replace("_", " ").split()
                    if len(tok) > 3)
 
+    @staticmethod
+    def _supports_unresolved_entity(unresolved: list[str], node: Node) -> bool:
+        import re as _re
+        hay = _re.sub(r"[^a-z0-9 ]+", " ",
+                      (node.label + " " + " ".join(
+                          str(v) for k, v in node.attrs.items()
+                          if k != "aliases")).lower())
+        words = {w.rstrip("s") for w in hay.split() if len(w) > 2}
+        for ref in unresolved:
+            toks = [t.rstrip("s") for t in _re.sub(r"[^a-z0-9 ]+", " ",
+                                                   ref.lower()).split()
+                    if len(t) > 2]
+            if toks and all(any(w.startswith(t[:5]) for w in words) for t in toks):
+                return True
+        return False
+
     def _describe(self, chain: Chain, cand: Candidate):
         for p in cand.paths:
             chain.add("anchor-path", path_text(self.graph, p))
@@ -1006,6 +1142,12 @@ class Engine:
             default_rule = default_rule or "cued-recall evidence"
             note = ("answer rests on a question-conditioned re-read of the "
                     "source — delivered as a guess, not a certainty")
+        if klass == VerdictClass.CONFIRMED and \
+                cand.node.source.startswith("apm:freq-event:"):
+            klass = VerdictClass.ASSUMED
+            default_rule = default_rule or "frequency inferred from event label"
+            note = ("the answer is read from a frequency-bearing event label, "
+                    "not a dedicated observed value assertion")
         verdict = Verdict(klass, cand.node, min(cand.score, 0.99), chain,
                           default_rule=default_rule, note=note,
                           evidence_edges=[(e.src, e.dst, e.rel)
@@ -1049,10 +1191,14 @@ class Engine:
         non-superseded assertion that is topically relevant to the question."""
         import re
         q = (query.topic_text or "").lower()
+        if query.unresolved:
+            return None
         want_dur = ("how long" in q or ph.type == NodeType.TIME
                     or ph.constraints.get("unit") == "duration")
         want_cnt = (query.mode == "count" or "how many" in q or "how much" in q)
-        if not (want_dur or want_cnt):
+        want_freq = ("how often" in q or "how frequently" in q
+                     or "weekly" in q or "monthly" in q or "daily" in q)
+        if not (want_dur or want_cnt or want_freq):
             return None
         # do NOT fire on a TIME-SCOPED / snapshot question ('how many pages had
         # I read WHEN I started my job'): the value must be pinned to a past
@@ -1067,10 +1213,15 @@ class Engine:
         DUR = re.compile(r"\d+(?:\.\d+)?(?:\s*[-–]\s*\d+)?\s*"
                          r"(?:hour|day|week|month|year|minute)s?\b", re.I)
         NUM = re.compile(r"\d")
+        FREQ = re.compile(r"\b(?:daily|weekly|monthly|yearly|annually|"
+                          r"every\s+\w+|once\s+(?:a|an)\s+\w+|"
+                          r"twice\s+(?:a|an)\s+\w+|"
+                          r"\d+\s+times\s+(?:a|per)\s+\w+)\b", re.I)
         RECO = re.compile(r"^(recommendation|suggest|tip|advice|use |choose |try )", re.I)
         subj = {t for t in re.sub(r"[^a-z0-9 ]", " ", q).split()
                 if len(t) > 3 and t not in ("long", "many", "much", "have",
-                                            "been", "does", "your", "with")}
+                                            "been", "does", "your", "with",
+                                            "often", "frequently")}
         cands = []
         for nid, paths in activated.items():
             n = self.graph.node(nid)
@@ -1079,6 +1230,8 @@ class Engine:
             if RECO.search(n.label):
                 continue
             if want_dur and not DUR.search(n.label):
+                continue
+            if want_freq and not FREQ.search(n.label):
                 continue
             if want_cnt and not want_dur and not NUM.search(n.label):
                 continue
