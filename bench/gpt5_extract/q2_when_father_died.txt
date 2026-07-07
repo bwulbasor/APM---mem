@@ -1,0 +1,74 @@
+You convert text into knowledge-graph JSON. Output ONLY a JSON object, no prose.
+
+Schema:
+{"nodes":[{"label":"...","type":"person|org|event|place|time|topic|assertion",
+           "attrs":{},"timestamp":"ISO-8601 or null"}],
+ "edges":[{"src":"<node label>","dst":"<node label>","rel":"<verb_phrase>","weight":0.9}]}
+
+Rules:
+- One node per distinct entity. Reuse the exact same label string in edges.
+- rel MUST come from this controlled vocabulary (snake_case):
+    lives_in, works_at, member_of, part_of, located_in, attends, traveled_to,
+    about, needed_for, scheduled_at, precedes, contradicts, married_to, dating,
+    knows, owns, hosts, plans, needs, presents_at, is_a, related_to
+  Pick the closest fit; use related_to ONLY if nothing fits. Never invent new
+  relation verbs. Specifically: residence -> lives_in (not resides_in/based_in/
+  moved_to), employment -> works_at, event participation -> attends (not
+  went_to/participated_in), trips/visits to places -> traveled_to, place
+  containment -> located_in (X located_in Y, never "Y includes/contains X").
+- Use member_of/part_of for person->organization or item->collection links.
+- Statements ABOUT things ("the docs are missing") become an `assertion` node
+  linked with `about` / `needed_for` edges.
+- Put dates in attrs as {"date":"YYYY-MM-DD"} on event nodes AND set timestamp.
+- Measured VALUES (times, durations, prices, scores, quantities, sizes) must become
+  `assertion` nodes carrying the value in the label AND attrs, linked to their
+  subject: {"label":"Personal best 25:50 in charity 5K","type":"assertion",
+  "attrs":{"value":"25:50","metric":"personal_best"}} + edge about -> charity 5K run.
+- attr keys use these exact names: "date" (YYYY-MM-DD), "value", "metric",
+  "unit", "participants" — never synonyms like amount/price/event_date. The
+  "metric" value names WHAT is measured ("mortgage_pre_approval", "5k_time"),
+  never its unit or currency.
+- weight: 0.9 for stated facts, 0.7 for implied ones.
+- INFERENCE IS ALLOWED but must be LABELED: when context strongly implies a
+  connection that is never stated outright (the store a coupon was redeemed
+  at, the city an event happened in), add that edge with "implied": true and
+  weight 0.5. Implied edges may only CONNECT entities already in your output
+  — never invent new entities or values for them. State facts as stated
+  edges; guess connections only as implied edges.
+- Do not invent facts not in the text (implied edges are connections the
+  text supports, not new facts).
+
+Example input: "Lena works at CERN. She presents at the AI summit on 2026-03-05."
+Example output:
+{"nodes":[{"label":"Lena","type":"person","attrs":{},"timestamp":null},
+{"label":"CERN","type":"org","attrs":{},"timestamp":null},
+{"label":"AI summit","type":"event","attrs":{"date":"2026-03-05"},"timestamp":"2026-03-05T00:00:00"}],
+"edges":[{"src":"Lena","dst":"CERN","rel":"works_at","weight":0.9},
+{"src":"Lena","dst":"AI summit","rel":"presents_at","weight":0.9}]}
+
+This is factual encyclopedia text about real-world entities (people, films, companies, places, dates). Extract the entities and the relations between them (directed_by, born_in, spouse/married_to, member_of, located_in, founded, date_of_birth, etc.) so the chain between entities is traversable.
+
+=== TEXT TO EXTRACT (extract the WHOLE thing into one JSON graph) ===
+
+Waldemar I, Prince of Anhalt-Zerbst. [ " W a l d e m a r   I ,   P r i n c e   o f   A n h a l t -   Z e r b s t (   d i e d   7   J a n u a r y   1 3 6 8 )   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   y o u n g e s t   s o n   o f   A l b e r t   I ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b y   h i s   s e c o n d   w i f e   A g n e s ,   d a u g h t e r   o f   C o n r a d ,   M a r g r a v e   o f   B r a n d e n b u r g -   S t e n d a l . " ]
+
+Bernhard VII, Prince of Anhalt-Zerbst. [ " B e r n h a r d   V I I   o f   A n h a l t -   Z e r b s t (   1 7   M a r c h   1 5 4 0   \ u 2 0 1 3   1   M a r c h   1 5 7 0 ) ,   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   b o r n   a n d   d i e d   i n   D e s s a u ,   a n d   w a s   t h e   t h i r d   a n d   y o u n g e s t   s o n   o f   J o h n   V ,   P r i n c e   o f   A n h a l t -   Z e r b s t   b y   h i s   w i f e   M a r g a r e t ,   d a u g h t e r   o f   J o a c h i m   I   N e s t o r ,   E l e c t o r   o f   B r a n d e n b u r g . " ]
+
+Albert III, Prince of Anhalt-Zerbst. [ " A l b e r t   I I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t (   d i e d   c a .   1   A u g u s t   1 3 5 9 )   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   e l d e s t   s o n   o f   A l b e r t   I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b y   h i s   s e c o n d   w i f e   B e a t r i x ,   d a u g h t e r   o f   R u d o l f   I ,   E l e c t o r   o f   S a x o n y   a n d   D u k e   o f   S a x e -   W i t t e m b e r g . " ]
+
+John VI, Prince of Anhalt-Zerbst. [ " J o h n   V I   o f   A n h a l t - Z e r b s t   ( Z e r b s t ,   2 4   M a r c h   1 6 2 1   \ u 2 0 1 3   Z e r b s t ,   4   J u l y   1 6 6 7 ) ,   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t - Z e r b s t . " , " H e   w a s   t h e   o n l y   s o n   o f   R u d o l p h ,   P r i n c e   o f   A n h a l t - Z e r b s t ,   b y   h i s   s e c o n d   w i f e   M a g d a l e n e ,   d a u g h t e r   o f   J o h n   V I I ,   C o u n t   o f   O l d e n b u r g . " ]
+
+Albert II, Prince of Anhalt-Zerbst. [ " A l b e r t   I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t (   d i e d   1 7   J u l y   1 3 6 2 )   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   t h i r d   s o n   o f   A l b e r t   I ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b u t   t h e   e l d e s t   c h i l d   b o r n   t o   h i s   s e c o n d   w i f e   A g n e s ,   d a u g h t e r   o f   C o n r a d ,   M a r g r a v e   o f   B r a n d e n b u r g -   S t e n d a l . " ]
+
+John II, Prince of Anhalt-Zerbst. [ " J o h n   I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t (   d i e d   1 1   A p r i l   1 3 8 2 )   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   y o u n g e s t   s o n   o f   A l b e r t   I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b y   h i s   s e c o n d   w i f e   B e a t r i x ,   d a u g h t e r   o f   R u d o l f   I ,   E l e c t o r   o f   S a x o n y   a n d   D u k e   o f   S a x e -   W i t t e m b e r g . " ]
+
+John V, Prince of Anhalt-Zerbst. [ " J o h n   V   o f   A n h a l t - Z e r b s t   ( D e s s a u ,   4   S e p t e m b e r   1 5 0 4   \ u 2 0 1 3   Z e r b s t ,   4   F e b r u a r y   1 5 5 1 ) ,   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t - D e s s a u . " , " F r o m   1 5 4 4 ,   h e   a s s u m e d   r u l e   o f   t h e   r e - c r e a t e d   p r i n c i p a l i t y   o f   A n h a l t - Z e r b s t . " , " J o h n   w a s   t h e   s e c o n d   ( b u t   e l d e s t   s u r v i v i n g )   s o n   o f   E r n e s t   I ,   P r i n c e   o f   A n h a l t - D e s s a u ,   b y   h i s   w i f e   M a r g a r e t e ,   d a u g h t e r   o f   H e n r y   I ,   D u k e   o f   M \ u 0 0 f c n s t e r b e r g - O e l s ,   a n d   g r a n d d a u g h t e r   o f   G e o r g e   o f   P o d \ u 0 1 1 b b r a d y ,   K i n g   o f   B o h e m i a . " ]
+
+Ernest I, Prince of Anhalt-Dessau. [ " E r n e s t   I ,   P r i n c e   o f   A n h a l t - D e s s a u   ( d i e d   D e s s a u ,   1 2   J u n e   1 5 1 6 ) ,   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t - D e s s a u . " , " H e   w a s   t h e   s e c o n d   s o n   o f   G e o r g e   I ,   P r i n c e   o f   A n h a l t - D e s s a u ,   y e t   t h e   f i r s t   b o r n   b y   h i s   f o u r t h   w i f e   A n n a ,   d a u g h t e r   o f   A l b e r t   V I I I ,   C o u n t   o f   L i n d o w - R u p p i n . " ]
+
+Waldemar III, Prince of Anhalt-Zerbst. [ " W a l d e m a r   I I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t (   d i e d   1 3 9 1 )   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   y o u n g e s t   s o n   o f   J o h n   I I ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b y   h i s   w i f e   E l i s a b e t h ,   d a u g h t e r   o f   J o h n   I ,   C o u n t   o f   H e n n e b e r g -   S c h l e u s i n g e n . " ]
+
+Karl I, Prince of Anhalt-Zerbst. [ " K a r l   I   o f   A n h a l t -   Z e r b s t (   1 7   N o v e m b e r   1 5 3 4   i n   D e s s a u   \ u 2 0 1 3   4   M a y   1 5 6 1   i n   Z e r b s t ) ,   w a s   a   G e r m a n   p r i n c e   o f   t h e   H o u s e   o f   A s c a n i a   a n d   r u l e r   o f   t h e   p r i n c i p a l i t y   o f   A n h a l t -   Z e r b s t . " , " H e   w a s   t h e   e l d e s t   s o n   o f   J o h n   V ,   P r i n c e   o f   A n h a l t -   Z e r b s t ,   b y   h i s   w i f e   M a r g a r e t ,   d a u g h t e r   o f   J o a c h i m   I   N e s t o r ,   E l e c t o r   o f   B r a n d e n b u r g . " ]
+
+=== END TEXT ===
+Output ONLY the JSON object {"nodes":[...],"edges":[...]}.

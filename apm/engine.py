@@ -417,7 +417,7 @@ class Engine:
             missing_opts = []
 
         def node_date(n: Node):
-            ts = n.timestamp or n.attrs.get("date")
+            ts = n.timestamp or n.attrs.get("date") or self._linked_date(n)
             return parse_ts(ts) if ts else None
 
         dated = [(n, node_date(n)) for n in nodes]
@@ -640,7 +640,7 @@ class Engine:
                            missing_evidence="two distinct dated events")
         dates = []
         for n in nodes:
-            ts = n.timestamp or n.attrs.get("date")
+            ts = n.timestamp or n.attrs.get("date") or self._linked_date(n)
             if not ts:
                 chain.add("note", f"'{n.label}' has no date/timestamp")
                 return Verdict(VerdictClass.UNKNOWN, None, 0.0, chain,
@@ -866,6 +866,29 @@ class Engine:
 
     def _is_advice(self, node: Node) -> bool:
         return bool(self._ADVICE.search(node.label))
+
+    def _linked_date(self, node: Node):
+        """A dated fact may live in a LINKED value-assertion ('2003 release
+        year for X') instead of as a date attr on the node itself. For
+        ordering/span, surface it: scan assertion neighbours for a date attr or
+        a 4-digit year. Returns ISO string or None. (Proven by the GPT-5.5
+        extractor test: the model supplied the years as assertions, but the
+        operators only read date attrs ON the option node and refused.)"""
+        best = None
+        for o, _e in self.graph.neighbors(node.id):
+            if o not in self.graph.nodes:
+                continue
+            nb = self.graph.node(o)
+            if nb.type != NodeType.ASSERTION:
+                continue
+            d = nb.attrs.get("date")
+            if d:
+                return d
+            m = re.search(r"\b(1[5-9]\d\d|20\d\d)\b",
+                          f"{nb.attrs.get('value', '')} {nb.label}")
+            if m and best is None:
+                best = f"{m.group(1)}-01-01"
+        return best
 
     @staticmethod
     def _same_value(a: Node, b: Node) -> bool:

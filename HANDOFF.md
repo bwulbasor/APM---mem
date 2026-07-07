@@ -17,6 +17,43 @@ name TBD (candidate: Graph Link Models). Acronym APM collides with App Performan
 ## Current state — Phases 1-6 IN FLIGHT (40 tests green)
 
 **======================================================================**
+**2026-07-07 (GPT-5.5 EXTRACTOR TEST) — THE KEY FINDING: BOTH extraction AND an**
+**ENGINE-CONSUMPTION BUG were blocking; fixing the engine (free) + better**
+**extraction = the answer flips. This nuances 'the wall is extraction'.**
+
+METHOD: manual extractor test (bench/ingest_pasted.py) — ran APM's extraction
+prompt on GPT-5.5 by hand (prompts in bench/gpt5_extract/*.txt), fed GPT-5.5's
+graph JSON into APM's engine. Isolates 'does a stronger EXTRACTOR lift APM'
+with zero API/network. First question (2Wiki comparison 'which film came out
+first, Blind Shaft or The Mask of Fu Manchu?', gold Mask):
+ - GPT-5.5 EXTRACTED BOTH release years as assertions (2003, 1932) — gemma had
+   NOT (gemma refused 'lack release dates'). So better extraction DID supply
+   the missing facts.
+ - BUT APM on GPT-5.5's graph STILL REFUSED (identical UNKNOWN) — because
+   `_order`/`_span` only read a date ATTR on the option node; the years lived
+   in LINKED assertion nodes ('2003 release year for X' --about--> film). An
+   ENGINE-CONSUMPTION bug, not extraction. (Same class as the temporal-NLP
+   null.)
+FIX (engine._linked_date, DEFAULT ON): when an ordering/span candidate has no
+own date, surface a date/year from a linked ASSERTION neighbour. Yields ASSUMED
+(not CONFIRMED — the date isn't a stated attr on the node), so faithfulness-
+safe. 141 tests green; dev-42 graph-only UNCHANGED 17/42, 0 inv (only helps
+where linked dates exist, e.g. 2Wiki comparisons).
+RESULT: re-ran GPT-5.5's graph -> APM answers 'The Mask of Fu Manchu' CORRECT
+(ASSUMED). **THE MISS FLIPPED.** Neither piece alone works: gemma+fix has no
+years; GPT-5.5+no-fix can't read them. BOTH needed.
+IMPLICATION: 'the wall is extraction' is HALF the story. For date/comparison
+questions there was ALSO an engine-consumption bug (now fixed) that would have
+masked ANY better extractor's gains. So: (1) the _linked_date fix is a real
+free win that unblocks consuming extracted dates; (2) with it in place, a
+BETTER EXTRACTOR (DeepSeek/GPT-5.5-quality) can NOW actually lift date/
+comparison questions — the DeepSeek experiment is more promising than before.
+TODO: user is running the other 3 gpt5_extract prompts (q2 death-date, q3
+director-birthplace, q4 grandfather-chain) on GPT-5.5; feed each via
+`python bench/ingest_pasted.py <qid> <json>` to see how many flip. There may
+be MORE engine-consumption bugs like this one hiding behind extraction.
+
+**======================================================================**
 **2026-07-07 (2WikiMultiHopQA TEST) — 'WRONG EXAM' HYPOTHESIS REFUTED; WALL IS**
 **EXTRACTION ON BOTH BENCHMARKS. But the ENGINE'S MULTI-HOP CHAINING WORKS.**
 

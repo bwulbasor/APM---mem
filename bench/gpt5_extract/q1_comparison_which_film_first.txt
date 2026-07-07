@@ -1,0 +1,74 @@
+You convert text into knowledge-graph JSON. Output ONLY a JSON object, no prose.
+
+Schema:
+{"nodes":[{"label":"...","type":"person|org|event|place|time|topic|assertion",
+           "attrs":{},"timestamp":"ISO-8601 or null"}],
+ "edges":[{"src":"<node label>","dst":"<node label>","rel":"<verb_phrase>","weight":0.9}]}
+
+Rules:
+- One node per distinct entity. Reuse the exact same label string in edges.
+- rel MUST come from this controlled vocabulary (snake_case):
+    lives_in, works_at, member_of, part_of, located_in, attends, traveled_to,
+    about, needed_for, scheduled_at, precedes, contradicts, married_to, dating,
+    knows, owns, hosts, plans, needs, presents_at, is_a, related_to
+  Pick the closest fit; use related_to ONLY if nothing fits. Never invent new
+  relation verbs. Specifically: residence -> lives_in (not resides_in/based_in/
+  moved_to), employment -> works_at, event participation -> attends (not
+  went_to/participated_in), trips/visits to places -> traveled_to, place
+  containment -> located_in (X located_in Y, never "Y includes/contains X").
+- Use member_of/part_of for person->organization or item->collection links.
+- Statements ABOUT things ("the docs are missing") become an `assertion` node
+  linked with `about` / `needed_for` edges.
+- Put dates in attrs as {"date":"YYYY-MM-DD"} on event nodes AND set timestamp.
+- Measured VALUES (times, durations, prices, scores, quantities, sizes) must become
+  `assertion` nodes carrying the value in the label AND attrs, linked to their
+  subject: {"label":"Personal best 25:50 in charity 5K","type":"assertion",
+  "attrs":{"value":"25:50","metric":"personal_best"}} + edge about -> charity 5K run.
+- attr keys use these exact names: "date" (YYYY-MM-DD), "value", "metric",
+  "unit", "participants" — never synonyms like amount/price/event_date. The
+  "metric" value names WHAT is measured ("mortgage_pre_approval", "5k_time"),
+  never its unit or currency.
+- weight: 0.9 for stated facts, 0.7 for implied ones.
+- INFERENCE IS ALLOWED but must be LABELED: when context strongly implies a
+  connection that is never stated outright (the store a coupon was redeemed
+  at, the city an event happened in), add that edge with "implied": true and
+  weight 0.5. Implied edges may only CONNECT entities already in your output
+  — never invent new entities or values for them. State facts as stated
+  edges; guess connections only as implied edges.
+- Do not invent facts not in the text (implied edges are connections the
+  text supports, not new facts).
+
+Example input: "Lena works at CERN. She presents at the AI summit on 2026-03-05."
+Example output:
+{"nodes":[{"label":"Lena","type":"person","attrs":{},"timestamp":null},
+{"label":"CERN","type":"org","attrs":{},"timestamp":null},
+{"label":"AI summit","type":"event","attrs":{"date":"2026-03-05"},"timestamp":"2026-03-05T00:00:00"}],
+"edges":[{"src":"Lena","dst":"CERN","rel":"works_at","weight":0.9},
+{"src":"Lena","dst":"AI summit","rel":"presents_at","weight":0.9}]}
+
+This is factual encyclopedia text about real-world entities (people, films, companies, places, dates). Extract the entities and the relations between them (directed_by, born_in, spouse/married_to, member_of, located_in, founded, date_of_birth, etc.) so the chain between entities is traversable.
+
+=== TEXT TO EXTRACT (extract the WHOLE thing into one JSON graph) ===
+
+Blind Shaft. [ " B l i n d   S h a f t   i s   a   2 0 0 3   f i l m   a b o u t   a   p a i r   o f   b r u t a l   c o n   a r t i s t s   o p e r a t i n g   i n   t h e   i l l e g a l   c o a l   m i n e s   o f   p r e s e n t -   d a y   n o r t h e r n   C h i n a . " , " T h e   f i l m   w a s   w r i t t e n   a n d   d i r e c t e d   b y   L i   Y a n g (   \ u 6 7 4 e \ u 6 7 6 8 ) ,   a n d   i s   b a s e d   o n   C h i n e s e   w r i t e r   L i u   Q i n g b a n g ' s   s h o r t   n o v e l \ "   S h e n   M u S a c r e d   W o o d \ " ) . " ]
+
+The Mysterious Dr. Fu Manchu. [ " T h e   M y s t e r i o u s   D r .   F u   M a n c h u   i s   a   1 9 2 9   A m e r i c a n   p r e - C o d e   d r a m a   f i l m   d i r e c t e d   b y   R o w l a n d   V .   L e e   a n d   s t a r r i n g   W a r n e r   O l a n d   a s   D r .   F u   M a n c h u . " , " I t   w a s   t h e   f i r s t   F u   M a n c h u   f i l m   o f   t h e   t a l k i e   e r a . " , " S i n c e   t h i s   w a s   d u r i n g   t h e   t r a n s i t i o n   p e r i o d   t o   s o u n d ,   a   s i l e n t   v e r s i o n   w a s   a l s o   r e l e a s e d   i n   t h e   U n i t e d   S t a t e s . " ]
+
+The Mask of Fu Manchu. [ " T h e   M a s k   o f   F u   M a n c h u   i s   a   1 9 3 2   p r e - C o d e   a d v e n t u r e   f i l m   d i r e c t e d   b y   C h a r l e s   B r a b i n . " , " I t   w a s   w r i t t e n   b y   I r e n e   K u h n ,   E d g a r   A l l a n   W o o l f   a n d   J o h n   W i l l a r d   b a s e d   o n   t h e   1 9 3 2   n o v e l   o f   t h e   s a m e   n a m e   b y   S a x   R o h m e r . " , " S t a r r i n g   B o r i s   K a r l o f f   a s   F u   M a n c h u ,   a n d   f e a t u r i n g   M y r n a   L o y   a s   h i s   d e p r a v e d   d a u g h t e r ,   t h e   m o v i e   r e v o l v e s   a r o u n d   F u   M a n c h u ' s   q u e s t   f o r   t h e   g o l d e n   s w o r d   a n d   m a s k   o f   G e n g h i s   K h a n . " , " L e w i s   S t o n e   p l a y s   h i s   n e m e s i s . " , " D r .   P e t r i e   i s   a b s e n t   f r o m   t h i s   f i l m . " ]
+
+The Castle of Fu Manchu. [ " T h e   C a s t l e   o f   F u   M a n c h u (   a l s o   k n o w n   a s   T h e   T o r t u r e   C h a m b e r   o f   D r .   F u   M a n c h u   a n d   a l s o   k n o w n   b y   i t s   G e r m a n   t i t l e   D i e   F o l t e r k a m m e r   d e s   D r .   F u   M a n   C h u )   i s   a   1 9 6 9   f i l m   a n d   t h e   f i f t h   a n d   f i n a l   D r .   F u   M a n c h u   f i l m   w i t h   C h r i s t o p h e r   L e e   p o r t r a y i n g   t h e   t i t l e   c h a r a c t e r . " ]
+
+The Brides of Fu Manchu. [ " T h e   B r i d e s   o f   F u   M a n c h u   i s   a   1 9 6 6   B r i t i s h \ /   W e s t   G e r m a n   C o n s t a n t i n   F i l m   c o - p r o d u c t i o n   a d v e n t u r e   c r i m e   f i l m   b a s e d   o n   t h e   f i c t i o n a l   C h i n e s e   v i l l a i n   D r .   F u   M a n c h u ,   c r e a t e d   b y   S a x   R o h m e r . " , " I t   w a s   t h e   s e c o n d   f i l m   i n   a   s e r i e s ,   a n d   w a s   p r e c e d e d   b y \ "   T h e   F a c e   o f   F u   M a n c h u T h e   V e n g e a n c e   o f   F u   M a n c h u \ "   f o l l o w e d   i n   1 9 6 7 , \ "   T h e   B l o o d   o f   F u   M a n c h u \ "   i n   1 9 6 8 ,   a n d \ "   T h e   C a s t l e   o f   F u   M a n c h u \ "   i n   1 9 6 9 . " , " I t   w a s   p r o d u c e d   b y   H a r r y   A l a n   T o w e r s   f o r   H a l l a m   P r o d u c t i o n s . " , " L i k e   t h e   f i r s t   f i l m ,   i t   w a s   d i r e c t e d   b y   D o n   S h a r p ,   a n d   s t a r r e d   C h r i s t o p h e r   L e e   a s   F u   M a n c h u . " , " N i g e l   G r e e n   w a s   r e p l a c e d   b y   D o u g l a s   W i l m e r   a s   S c o t l a n d   Y a r d   d e t e c t i v e   N a y l a n d   S m i t h . " , " T h e   a c t i o n   t a k e s   p l a c e   m a i n l y   i n   L o n d o n ,   w h e r e   m u c h   o f   t h e   l o c a t i o n   f i l m i n g   t o o k   p l a c e . " ]
+
+Les Trottoirs de Bangkok. [ " L e s   T r o t t o i r s   d e   B a n g k o k (   E n g l i s h : \ "   T h e   S i d e w a l k s   o f   B a n g k o k \ " ,   a l s o   k n o w n   a s \ "   B a n g k o k   I n t e r d i t \ " )   i s   a   1 9 8 4   e r o t i c   t h r i l l e r   f i l m   d i r e c t e d   b y   J e a n   R o l l i n . " , " T h e   f i l m   w a s   i n s p i r e d   b y   t h e   1 9 3 2   B o r i s   K a r l o f f   c l a s s i c \ "   T h e   M a s k   o f   F u   M a n c h u \ " . " , " I n   c o n t r a s t   t o   R o l l i n ' s   u s u a l   t h e m e s   o f   v a m p i r e s ,   d r e a m -   l i k e   a t m o s p h e r e   a n d   c r u m b l i n g   c h \ u 0 0 e 2 t e a u s , \ "   L e s   T r o t t o i r s   d e s   B a n g k o k \ "   m i x e s   t h e m e s   o f   a d v e n t u r e ,   c r i m e   a n d   m y s t e r y   w i t h   c o m i c   b o o k   d i a l o g u e ,   w h i l e   s t i l l   f e a t u r i n g   n a k e d   w o m e n   a n d   s e x ,   w h i c h   h i s   f i l m s   w e r e   k n o w n   f o r . " ]
+
+The Face of Fu Manchu. [ " T h e   F a c e   o f   F u   M a n c h u   i s   a   1 9 6 5   t h r i l l e r   f i l m   d i r e c t e d   b y   D o n   S h a r p   a n d   b a s e d   o n   t h e   c h a r a c t e r s   c r e a t e d   b y   S a x   R o h m e r . " , " I t   s t a r s   C h r i s t o p h e r   L e e   a s   t h e   e p o n y m o u s   v i l l a i n ,   a   C h i n e s e   c r i m i n a l   m a s t e r m i n d ,   a n d   N i g e l   G r e e n   a s   h i s   p u r s u i n g   r i v a l   N a y l a n d   S m i t h ,   a   S c o t l a n d   Y a r d   d e t e c t i v e . " , " T h e   f i l m   w a s   a   B r i t i s h -   W e s t   G e r m a n   c o - p r o d u c t i o n ,   a n d   w a s   t h e   f i r s t   i n   a   f i v e -   p a r t   s e r i e s   s t a r r i n g   L e e   a n d   p r o d u c e d   b y   H a r r y   A l a n   T o w e r s   f o r   C o n s t a n t i n   F i l m ,   t h e   s e c o n d   o f   w h i c h   w a s \ "   T h e   B r i d e s   o f   F u   M a n c h u \ "   r e l e a s e d   t h e   n e x t   y e a r ,   w i t h   t h e   f i n a l   e n t r y   b e i n g \ "   T h e   C a s t l e   o f   F u   M a n c h u \ "   i n   1 9 6 9 . " , " I t   w a s   s h o t   i n   T e c h n i c o l o r   a n d   T e c h n i s c o p e ,   o n -   l o c a t i o n   i n   C o u n t y   D u b l i n ,   I r e l a n d . " ]
+
+The Mask of the Gorilla. [ " T h e   M a s k   o f   t h e   G o r i l l a   i s   a   1 9 5 8   F r e n c h   a c t i o n   f i l m   d i r e c t e d   b y   B e r n a r d   B o r d e r i e . " ]
+
+The Blood of Fu Manchu. [ " T h e   B l o o d   o f   F u   M a n c h u ,   a l s o   k n o w n   a s   F u   M a n c h u   a n d   t h e   K i s s   o f   D e a t h ,   K i s s   o f   D e a t h ,   K i s s   a n d   K i l l (   U . S .   t i t l e )   a n d   A g a i n s t   A l l   O d d s (   o r i g i n a l   U . S .   v i d e o   t i t l e ) ,   i s   a   1 9 6 8   B r i t i s h   a d v e n t u r e   c r i m e   f i l m   d i r e c t e d   b y   J e s \ u 0 0 f a s   F r a n c o ,   b a s e d   o n   t h e   f i c t i o n a l   A s i a n   v i l l a i n   D r .   F u   M a n c h u   c r e a t e d   b y   S a x   R o h m e r . " , " I t   w a s   t h e   f o u r t h   f i l m   i n   a   s e r i e s ,   a n d   w a s   p r e c e d e d   b y \ "   T h e   V e n g e a n c e   o f   F u   M a n c h u   T h e   C a s t l e   o f   F u   M a n c h u \ "   f o l l o w e d   i n   1 9 6 9 . " , " I t   w a s   p r o d u c e d   b y   H a r r y   A l a n   T o w e r s   f o r   U d a s t e x   F i l m s . " , " I t   s t a r r e d   C h r i s t o p h e r   L e e   a s   D r .   F u   M a n c h u ,   R i c h a r d   G r e e n e   a s   S c o t l a n d   Y a r d   d e t e c t i v e   N a y l a n d   S m i t h ,   a n d   H o w a r d   M a r i o n -   C r a w f o r d   a s   D r .   P e t r i e . " , " T h e   m o v i e   w a s   f i l m e d   i n   S p a i n   a n d   B r a z i l . " , " S h i r l e y   E a t o n   a p p e a r s   i n   a   s c e n e   t h a t   s h e   c l a i m e d   s h e   w a s   n e v e r   p a i d   f o r ;   a p p a r e n t l y ,   t h e   d i r e c t o r   J e s \ u 0 0 f a s   F r a n c o   h a d   i n s e r t e d   s o m e   s t o c k   f o o t a g e   o f   h e r   f r o m   o n e   o f   h e r   f i l m s ( \ "   T h e   G i r l   f r o m   R i o \ " (   1 9 6 8 ) )   i n t o   t h e   f i l m   w i t h o u t   t e l l i n g   h e r . " , " S h e   o n l y   f o u n d   o u t   y e a r s   l a t e r   t h a t   s h e   h a d   b e e n   i n   a   F u   M a n c h u   f i l m . " ]
+
+The Return of Dr. Fu Manchu. [ " T h e   R e t u r n   o f   D r .   F u   M a n c h u   i s   a   1 9 3 0   A m e r i c a n   p r e - C o d e   f i l m   d i r e c t e d   b y   R o w l a n d   V .   L e e . " , " I t   i s   t h e   s e c o n d   o f   t h r e e   f i l m s   s t a r r i n g   W a r n e r   O l a n d   a s   t h e   f i e n d i s h   F u   M a n c h u ,   w h o   r e t u r n s   f r o m   a p p a r e n t   d e a t h   i n   t h e   p r e v i o u s   f i l m , \ "   T h e   M y s t e r i o u s   D r .   F u   M a n c h u \ " (   1 9 2 9 ) ,   t o   s e e k   r e v e n g e   o n   t h o s e   h e   h o l d s   r e s p o n s i b l e   f o r   t h e   d e a t h   o f   h i s   w i f e   a n d   c h i l d . " ]
+
+=== END TEXT ===
+Output ONLY the JSON object {"nodes":[...],"edges":[...]}.
